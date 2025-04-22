@@ -1,9 +1,11 @@
 package editor
 
 import (
+	"markdown-editor/config"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -19,6 +21,7 @@ type Editor struct {
 	fileList    *widget.List
 	window      fyne.Window
 	files       []fyne.URI
+	config      *config.Config
 	currentDir  fyne.ListableURI
 }
 
@@ -29,11 +32,61 @@ func NewEditor(w fyne.Window) *Editor {
 		window:      w,
 	}
 
-	e.editArea.OnChanged = func(text string) {
-		e.updatePreview(text)
+	w.SetContent(container.NewVBox(
+		widget.NewLabel("Initializing..."),
+		widget.NewProgressBarInfinite(),
+	))
+
+	go e.initialize()
+
+	e.editArea.OnChanged = e.updatePreview
+	return e
+}
+
+func (e *Editor) initialize() {
+	cfg, err := loadConfigWithRetry(e.window, 3)
+	if err != nil {
+		fyne.CurrentApp().SendNotification(&fyne.Notification{
+			Title:   "Error",
+			Content: err.Error(),
+		})
+		return
 	}
 
-	return e
+	dirURI := storage.NewFileURI(cfg.DefaultFolder)
+	currentDir, err := storage.ListerForURI(dirURI)
+	if err != nil {
+		fyne.CurrentApp().SendNotification(&fyne.Notification{
+			Title:   "Error",
+			Content: "Invalid configured folder: " + err.Error(),
+		})
+		return
+	}
+
+	e.window.Canvas().SetContent(container.NewHSplit(
+		e.FileTree(),
+		container.NewVSplit(
+			e.EditArea(),
+			e.PreviewArea(),
+		),
+	))
+
+	e.config = cfg
+	e.currentDir = currentDir
+	e.refreshFileList()
+}
+
+func loadConfigWithRetry(w fyne.Window, maxAttempts int) (*config.Config, error) {
+	var lastErr error
+	for range maxAttempts {
+		cfg, err := config.LoadConfig(w)
+		if err == nil {
+			return cfg, nil
+		}
+		lastErr = err
+		time.Sleep(time.Second)
+	}
+	return nil, lastErr
 }
 
 func (e *Editor) EditArea() fyne.CanvasObject {
@@ -46,12 +99,8 @@ func (e *Editor) PreviewArea() fyne.CanvasObject {
 
 func (e *Editor) FileTree() fyne.CanvasObject {
 	e.fileList = widget.NewList(
-		func() int {
-			return len(e.files)
-		},
-		func() fyne.CanvasObject {
-			return widget.NewLabel("template")
-		},
+		func() int { return len(e.files) },
+		func() fyne.CanvasObject { return widget.NewLabel("template") },
 		func(id widget.ListItemID, item fyne.CanvasObject) {
 			item.(*widget.Label).SetText(e.files[id].Name())
 		},
@@ -61,26 +110,15 @@ func (e *Editor) FileTree() fyne.CanvasObject {
 		e.loadFile(e.files[id])
 	}
 
-	openBtn := widget.NewButton("Open Folder", e.openFolder)
 	newBtn := widget.NewButton("New File", e.newFile)
 	deleteBtn := widget.NewButton("Delete", e.deleteFile)
 	saveBtn := widget.NewButton("Save", e.saveFile)
 
 	return container.NewBorder(
-		container.NewHBox(openBtn, newBtn, deleteBtn, saveBtn),
+		container.NewHBox(newBtn, deleteBtn, saveBtn),
 		nil, nil, nil,
 		e.fileList,
 	)
-}
-
-func (e *Editor) openFolder() {
-	dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
-		if err != nil || uri == nil {
-			return
-		}
-		e.currentDir = uri
-		e.refreshFileList()
-	}, e.window)
 }
 
 func (e *Editor) refreshFileList() {
@@ -91,7 +129,6 @@ func (e *Editor) refreshFileList() {
 	e.files = []fyne.URI{}
 	items, err := e.currentDir.List()
 	if err != nil {
-		dialog.ShowError(err, e.window)
 		return
 	}
 
@@ -101,21 +138,21 @@ func (e *Editor) refreshFileList() {
 		}
 	}
 
-	e.fileList.Refresh()
+	if e.fileList != nil {
+		e.fileList.Refresh()
+	}
 }
 
 func (e *Editor) loadFile(uri fyne.URI) {
 	e.currentFile = uri
 	read, err := storage.Reader(uri)
 	if err != nil {
-		dialog.ShowError(err, e.window)
 		return
 	}
 	defer read.Close()
 
 	content, err := os.ReadFile(uri.Path())
 	if err != nil {
-		dialog.ShowError(err, e.window)
 		return
 	}
 
@@ -125,7 +162,6 @@ func (e *Editor) loadFile(uri fyne.URI) {
 
 func (e *Editor) newFile() {
 	if e.currentDir == nil {
-		dialog.ShowInformation("No folder open", "Please open a folder first", e.window)
 		return
 	}
 
@@ -146,7 +182,6 @@ func (e *Editor) newFile() {
 
 		_, err = writer.Write([]byte("# New Document\n"))
 		if err != nil {
-			dialog.ShowError(err, e.window)
 			return
 		}
 
@@ -156,19 +191,13 @@ func (e *Editor) newFile() {
 
 func (e *Editor) deleteFile() {
 	if e.currentFile == nil {
-		dialog.ShowInformation("No file selected", "Please select a file to delete", e.window)
 		return
 	}
 
 	dialog.ShowConfirm("Delete File", "Are you sure you want to delete "+e.currentFile.Name()+"?",
 		func(ok bool) {
 			if ok {
-				err := os.Remove(e.currentFile.Path())
-				if err != nil {
-					dialog.ShowError(err, e.window)
-					return
-				}
-
+				os.Remove(e.currentFile.Path())
 				e.refreshFileList()
 				e.currentFile = nil
 				e.editArea.SetText("")
@@ -179,21 +208,16 @@ func (e *Editor) deleteFile() {
 
 func (e *Editor) saveFile() {
 	if e.currentFile == nil {
-		dialog.ShowInformation("No file selected", "Please select a file to save to", e.window)
 		return
 	}
 
 	writer, err := storage.Writer(e.currentFile)
 	if err != nil {
-		dialog.ShowError(err, e.window)
 		return
 	}
 	defer writer.Close()
 
-	_, err = writer.Write([]byte(e.editArea.Text))
-	if err != nil {
-		dialog.ShowError(err, e.window)
-	}
+	writer.Write([]byte(e.editArea.Text))
 }
 
 func (e *Editor) updatePreview(text string) {
