@@ -1,7 +1,7 @@
 package main
 
 import (
-	"markdown-editor/editor"
+	"markdown-editor/internal/editor"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
