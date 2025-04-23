@@ -3,6 +3,7 @@ package editor
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/dialog"
@@ -10,18 +11,12 @@ import (
 )
 
 func (e *Editor) loadFile(uri fyne.URI) {
-	e.currentFile = uri
-	read, err := storage.Reader(uri)
-	if err != nil {
-		return
-	}
-	defer read.Close()
-
 	content, err := os.ReadFile(uri.Path())
 	if err != nil {
 		return
 	}
 
+	e.currentFile = uri
 	e.editComponent.SetContent(string(content))
 	e.previewComponent.Update(string(content))
 }
@@ -31,35 +26,24 @@ func (e *Editor) newFile() {
 		return
 	}
 
-	dialog.ShowFileSave(func(writer fyne.URIWriteCloser, err error) {
-		if err != nil || writer == nil {
-			return
-		}
-		defer writer.Close()
+	baseName := generateNewFilename()
+	newURI, _ := storage.Child(e.currentDir, baseName)
 
-		uri := writer.URI()
-		originalPath := uri.Path()
-		if filepath.Ext(originalPath) != ".md" {
-			modifiedPath := originalPath + ".md"
-			modifiedUri, _ := storage.Child(e.currentDir, filepath.Base(modifiedPath))
+	header := "# " + strings.TrimSuffix(baseName, ".md") + "\n"
+	writer, err := storage.Writer(newURI)
+	if err != nil {
+		return
+	}
+	defer writer.Close()
 
-			writer.Close()
-			writer, _ = storage.Writer(modifiedUri)
-			defer writer.Close()
+	if _, err := writer.Write([]byte(header)); err != nil {
+		return
+	}
 
-			if _, err := os.Stat(originalPath); err == nil {
-				os.Remove(originalPath)
-			}
-		}
-
-		_, err = writer.Write([]byte("# New Document\n"))
-		e.editComponent.SetContent("# New Document\n")
-		if err != nil {
-			return
-		}
-
-		e.refreshFileList()
-	}, e.window)
+	e.currentFile = newURI
+	e.editComponent.SetContent(header)
+	e.previewComponent.Update(header)
+	e.refreshFileList()
 }
 
 func (e *Editor) deleteFile() {
@@ -84,11 +68,30 @@ func (e *Editor) saveFile() {
 		return
 	}
 
+	content := e.editComponent.Content()
+
+	lines := strings.SplitN(content, "\n", 2)
+	rawTitle := strings.TrimSpace(lines[0])
+	cleanTitle := strings.TrimPrefix(rawTitle, "# ")
+	newFilename := sanitizeFilename(cleanTitle) + ".md"
+
+	if newFilename != filepath.Base(e.currentFile.Path()) && cleanTitle != "" {
+		newURI, _ := storage.Child(e.currentDir, newFilename)
+
+		if err := storage.Move(e.currentFile, newURI); err == nil {
+			e.currentFile = newURI
+		}
+	}
+
 	writer, err := storage.Writer(e.currentFile)
 	if err != nil {
 		return
 	}
 	defer writer.Close()
 
-	writer.Write([]byte(e.editComponent.Content()))
+	if _, err := writer.Write([]byte(content)); err != nil {
+		return
+	}
+
+	e.refreshFileList()
 }
