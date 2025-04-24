@@ -5,15 +5,33 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
 func (e *Editor) FileTree() fyne.CanvasObject {
 	e.fileList = widget.NewList(
 		func() int { return len(e.files) },
-		func() fyne.CanvasObject { return widget.NewLabel("template") },
+		func() fyne.CanvasObject {
+			deleteBtn := widget.NewButtonWithIcon("", theme.DeleteIcon(), nil)
+			deleteBtn.Importance = widget.LowImportance
+			return container.NewBorder(
+				nil,
+				nil,
+				widget.NewLabel("template"),
+				deleteBtn,
+				nil)
+		},
 		func(id widget.ListItemID, item fyne.CanvasObject) {
-			item.(*widget.Label).SetText(e.files[id].Name())
+			container := item.(*fyne.Container)
+			label := container.Objects[0].(*widget.Label)
+			btn := container.Objects[1].(*widget.Button)
+
+			label.SetText(e.files[id].Name())
+
+			btn.OnTapped = func() {
+				e.deleteFile(e.files[id], id)
+			}
 		},
 	)
 
@@ -24,7 +42,6 @@ func (e *Editor) FileTree() fyne.CanvasObject {
 	return container.NewBorder(
 		container.NewHBox(
 			widget.NewButton("New File", e.newFile),
-			widget.NewButton("Delete", e.deleteFile),
 			widget.NewButton("Save", e.saveFile),
 		),
 		nil, nil, nil,

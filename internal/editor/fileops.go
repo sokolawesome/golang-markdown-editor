@@ -46,19 +46,30 @@ func (e *Editor) newFile() {
 	e.refreshFileList()
 }
 
-func (e *Editor) deleteFile() {
-	if e.currentFile == nil {
-		return
-	}
-
-	dialog.ShowConfirm("Delete File", "Are you sure you want to delete "+e.currentFile.Name()+"?",
+func (e *Editor) deleteFile(file fyne.URI, index int) {
+	dialog.ShowConfirm("Delete File", "Are you sure you want to delete "+file.Name()+"?",
 		func(ok bool) {
 			if ok {
-				os.Remove(e.currentFile.Path())
+				os.Remove(file.Path())
 				e.refreshFileList()
-				e.currentFile = nil
-				e.editComponent.SetContent("")
-				e.previewComponent.Update("")
+
+				if len(e.files) > 0 {
+					newIndex := index
+					if newIndex >= len(e.files) {
+						newIndex = len(e.files) - 1
+					}
+
+					if newIndex < 0 {
+						newIndex = 0
+					}
+
+					e.fileList.Select(newIndex)
+					e.loadFile(e.files[newIndex])
+				} else {
+					e.currentFile = nil
+					e.editComponent.SetContent("")
+					e.previewComponent.Update("")
+				}
 			}
 		}, e.window)
 }
