@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"log"
 	"strings"
 
 	"fyne.io/fyne/v2"
@@ -23,9 +24,21 @@ func (e *Editor) FileTree() fyne.CanvasObject {
 				nil)
 		},
 		func(id widget.ListItemID, item fyne.CanvasObject) {
-			container := item.(*fyne.Container)
-			label := container.Objects[0].(*widget.Label)
-			btn := container.Objects[1].(*widget.Button)
+			container, ok := item.(*fyne.Container)
+			if !ok {
+				log.Printf("Failed to cast item to container for file %s", e.files[id].Name())
+				return
+			}
+			label, ok := container.Objects[0].(*widget.Label)
+			if !ok {
+				log.Printf("Failed to cast object to label for file %s", e.files[id].Name())
+				return
+			}
+			btn, ok := container.Objects[1].(*widget.Button)
+			if !ok {
+				log.Printf("Failed to cast object to button for file %s", e.files[id].Name())
+				return
+			}
 
 			label.SetText(e.files[id].Name())
 
@@ -36,7 +49,12 @@ func (e *Editor) FileTree() fyne.CanvasObject {
 	)
 
 	e.fileList.OnSelected = func(id widget.ListItemID) {
-		e.loadFile(e.files[id])
+		if err := e.loadFile(e.files[id]); err != nil {
+			fyne.CurrentApp().SendNotification(&fyne.Notification{
+				Title:   "Error",
+				Content: "Failed to load file: " + err.Error(),
+			})
+		}
 	}
 
 	return container.NewBorder(
@@ -51,12 +69,20 @@ func (e *Editor) FileTree() fyne.CanvasObject {
 
 func (e *Editor) refreshFileList() {
 	if e.currentDir == nil {
+		fyne.CurrentApp().SendNotification(&fyne.Notification{
+			Title:   "Error",
+			Content: "No workspace directory selected",
+		})
 		return
 	}
 
 	e.files = []fyne.URI{}
 	items, err := e.currentDir.List()
 	if err != nil {
+		fyne.CurrentApp().SendNotification(&fyne.Notification{
+			Title:   "Error",
+			Content: "Failed to list directory: " + err.Error(),
+		})
 		return
 	}
 

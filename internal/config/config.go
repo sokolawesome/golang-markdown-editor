@@ -31,6 +31,10 @@ func getConfigPath() (string, error) {
 func LoadConfig(window fyne.Window) (*Config, error) {
 	configPath, err := getConfigPath()
 	if err != nil {
+		fyne.CurrentApp().SendNotification(&fyne.Notification{
+			Title:   "Error",
+			Content: err.Error(),
+		})
 		return nil, err
 	}
 
@@ -40,11 +44,19 @@ func LoadConfig(window fyne.Window) (*Config, error) {
 
 	file, err := os.ReadFile(configPath)
 	if err != nil {
+		fyne.CurrentApp().SendNotification(&fyne.Notification{
+			Title:   "Error",
+			Content: "Failed to read config file: " + err.Error(),
+		})
 		return nil, err
 	}
 
 	var config Config
 	if err := json.Unmarshal(file, &config); err != nil {
+		fyne.CurrentApp().SendNotification(&fyne.Notification{
+			Title:   "Error",
+			Content: "Invalid config format: " + err.Error(),
+		})
 		return nil, fmt.Errorf("invalid config format: %w", err)
 	}
 
@@ -54,6 +66,10 @@ func LoadConfig(window fyne.Window) (*Config, error) {
 func createDefaultConfig(window fyne.Window) (*Config, error) {
 	configPath, err := getConfigPath()
 	if err != nil {
+		fyne.CurrentApp().SendNotification(&fyne.Notification{
+			Title:   "Error",
+			Content: err.Error(),
+		})
 		return nil, err
 	}
 
@@ -71,9 +87,17 @@ func createDefaultConfig(window fyne.Window) (*Config, error) {
 
 	selection := <-result
 	if selection.err != nil {
+		fyne.CurrentApp().SendNotification(&fyne.Notification{
+			Title:   "Error",
+			Content: "Folder selection failed: " + selection.err.Error(),
+		})
 		return nil, fmt.Errorf("folder selection failed: %w", selection.err)
 	}
 	if selection.uri == nil {
+		fyne.CurrentApp().SendNotification(&fyne.Notification{
+			Title:   "Error",
+			Content: "No folder selected",
+		})
 		return nil, fmt.Errorf("no folder selected")
 	}
 
@@ -83,11 +107,19 @@ func createDefaultConfig(window fyne.Window) (*Config, error) {
 
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
+		fyne.CurrentApp().SendNotification(&fyne.Notification{
+			Title:   "Error",
+			Content: "Failed to marshal config: " + err.Error(),
+		})
 		return nil, fmt.Errorf("could not marshal config: %w", err)
 	}
 
 	if err := os.WriteFile(configPath, data, 0600); err != nil {
-		return nil, fmt.Errorf("could not write config: %w", err)
+		fyne.CurrentApp().SendNotification(&fyne.Notification{
+			Title:   "Error",
+			Content: "Failed to write config file: " + err.Error(),
+		})
+		return nil, fmt.Errorf("could not write config file: %w", err)
 	}
 
 	return &config, nil

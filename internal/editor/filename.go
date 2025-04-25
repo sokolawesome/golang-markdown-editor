@@ -8,7 +8,7 @@ import (
 )
 
 func generateNewFilename() string {
-	timestamp := time.Now().Format("20060102-150405")
+	timestamp := time.Now().Format("20250101-100105")
 	return fmt.Sprintf("note-%s.md", timestamp)
 }
 
@@ -26,14 +26,4 @@ func sanitizeFilename(input string) string {
 	}
 
 	return strings.ToLower(cleaned)
-}
-
-func (e *Editor) getTitleFromContent() string {
-	content := e.editComponent.Content()
-	if content == "" {
-		return "untitled"
-	}
-
-	firstLine := strings.Split(content, "\n")[0]
-	return sanitizeFilename(firstLine)
 }
