@@ -1,0 +1,19 @@
+version: "3"
+tasks:
+  lint:
+    cmds:
+      - golangci-lint run
+    desc: Run linter
+  test:
+    cmds:
+      - go test ./...
+    desc: Run tests
+  build:
+    cmds:
+      - go build -o bin/markdown-editor ./cmd/markdown-editor
+    desc: Build application
+  run:
+    deps: [build]
+    cmds:
+      - ./bin/markdown-editor
+    desc: Run application
