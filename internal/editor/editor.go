@@ -262,31 +262,48 @@ func (e *Editor) saveFile() {
 
 	content := e.editComponent.Content()
 
-	lines := strings.SplitN(content, "\n", 2)
-	rawTitle := strings.TrimSpace(lines[0])
-	cleanTitle := strings.TrimPrefix(rawTitle, "# ")
-	newFilename := sanitizeFilename(cleanTitle) + ".md"
+	var potentialFilename string
+	for line := range strings.SplitSeq(content, "\n") {
+		trimmedLine := strings.TrimSpace(line)
+		if trimmedLine != "" {
+			potentialFilename = trimmedLine
+			break
+		}
+	}
 
-	if cleanTitle != "" && newFilename != filepath.Base(e.currentFile.Path()) {
+	var newFilename string
+	if potentialFilename != "" {
+		sanitizedTitle := sanitizeFilename(potentialFilename)
+		if sanitizedTitle != "" && sanitizedTitle != filenameDefault {
+			newFilename = sanitizedTitle + ".md"
+		}
+	}
+
+	if newFilename != "" && newFilename != filepath.Base(e.currentFile.Path()) {
 		newURI, err := storage.Child(e.currentDir, newFilename)
 		if err != nil {
 			fyne.CurrentApp().SendNotification(&fyne.Notification{
 				Title:   "Error",
 				Content: "Failed to create new file URI: " + err.Error(),
 			})
+			log.Printf("Failed to create new file URI for %s: %v", newFilename, err)
 			return
 		}
 
-		if _, err := storage.Reader(newURI); err == nil {
+		_, err = storage.Reader(newURI)
+
+		if err == nil {
 			fyne.CurrentApp().SendNotification(&fyne.Notification{
 				Title:   "Warning",
 				Content: "File with name " + newFilename + " already exists. Overwriting.",
 			})
-		} else if !os.IsNotExist(err) {
+		} else if err == storage.ErrNotExists {
+		} else {
 			fyne.CurrentApp().SendNotification(&fyne.Notification{
 				Title:   "Error",
 				Content: "Could not check for existing file: " + err.Error(),
 			})
+			log.Printf("Error checking existence of %s: %v", newURI.Path(), err)
 			return
 		}
 
@@ -299,6 +316,7 @@ func (e *Editor) saveFile() {
 			return
 		}
 		e.currentFile = newURI
+		log.Printf("File renamed to: %s", newURI.Path())
 	}
 
 	writer, err := storage.Writer(e.currentFile)
@@ -340,4 +358,9 @@ func (e *Editor) saveFile() {
 			}
 		}
 	}
+	log.Printf("File saved: %s", e.currentFile.Path())
+	fyne.CurrentApp().SendNotification(&fyne.Notification{
+		Title:   "Success",
+		Content: "File saved successfully!",
+	})
 }
