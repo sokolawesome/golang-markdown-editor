@@ -104,6 +104,7 @@ func (e *Editor) toggleMode() {
 			e.editComponent.View(),
 		))
 	} else {
+		e.previewComponent.Update(e.editComponent.Content())
 		e.window.Canvas().SetContent(container.NewHSplit(
 			e.filetreeComponent.View(),
 			e.previewComponent.View(),
