@@ -1,4 +1,4 @@
-package editor
+package previewcomponent
 
 import (
 	"fyne.io/fyne/v2"
