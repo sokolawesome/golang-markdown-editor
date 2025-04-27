@@ -151,7 +151,14 @@ func (e *Editor) newFile() {
 		return
 	}
 
-	baseName := generateNewFilename()
+	baseName, err := generateNewFilename(e.currentDir)
+	if err != nil {
+		fyne.CurrentApp().SendNotification(&fyne.Notification{
+			Title:   "Error",
+			Content: "Failed to generate new filename: " + err.Error(),
+		})
+		return
+	}
 	newURI, err := storage.Child(e.currentDir, baseName)
 	if err != nil {
 		fyne.CurrentApp().SendNotification(&fyne.Notification{
