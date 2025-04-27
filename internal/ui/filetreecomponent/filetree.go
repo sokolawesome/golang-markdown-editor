@@ -10,7 +10,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-type FileTreeComponent struct {
+type FiletreeComponent struct {
 	fileList   *widget.List
 	files      []fyne.URI
 	currentDir fyne.ListableURI
@@ -23,8 +23,8 @@ type FileTreeComponent struct {
 	widget fyne.CanvasObject
 }
 
-func NewFileTreeComponent(onSelect func(fyne.URI), onDelete func(fyne.URI, int), onNew func(), onSave func()) *FileTreeComponent {
-	ftc := &FileTreeComponent{
+func NewFiletreeComponent(onSelect func(fyne.URI), onDelete func(fyne.URI, int), onNew func(), onSave func()) *FiletreeComponent {
+	ftc := &FiletreeComponent{
 		OnSelectFile: onSelect,
 		OnDeleteFile: onDelete,
 		OnNewFile:    onNew,
@@ -98,11 +98,11 @@ func NewFileTreeComponent(onSelect func(fyne.URI), onDelete func(fyne.URI, int),
 	return ftc
 }
 
-func (ftc *FileTreeComponent) SetDirectory(dir fyne.ListableURI) {
+func (ftc *FiletreeComponent) SetDirectory(dir fyne.ListableURI) {
 	ftc.currentDir = dir
 }
 
-func (ftc *FileTreeComponent) Refresh() {
+func (ftc *FiletreeComponent) Refresh() {
 	if ftc.currentDir == nil {
 		fyne.CurrentApp().SendNotification(&fyne.Notification{
 			Title:   "Error",
@@ -132,14 +132,14 @@ func (ftc *FileTreeComponent) Refresh() {
 	}
 }
 
-func (ftc *FileTreeComponent) View() fyne.CanvasObject {
+func (ftc *FiletreeComponent) View() fyne.CanvasObject {
 	return ftc.widget
 }
 
-func (ftc *FileTreeComponent) GetFiles() []fyne.URI {
+func (ftc *FiletreeComponent) GetFiles() []fyne.URI {
 	return ftc.files
 }
 
-func (ftc *FileTreeComponent) SelectFile(id widget.ListItemID) {
+func (ftc *FiletreeComponent) SelectFile(id widget.ListItemID) {
 	ftc.fileList.Select(id)
 }

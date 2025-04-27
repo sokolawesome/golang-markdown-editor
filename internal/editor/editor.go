@@ -2,6 +2,7 @@ package editor
 
 import (
 	"log"
+	"markdown-editor/internal/app"
 	"markdown-editor/internal/config"
 	"markdown-editor/internal/ui/editorcomponent"
 	"markdown-editor/internal/ui/filetreecomponent"
@@ -21,9 +22,9 @@ import (
 
 type Editor struct {
 	currentFile       fyne.URI
-	editComponent     *editorcomponent.EditComponent
-	previewComponent  *previewcomponent.PreviewComponent
-	fileTreeComponent *filetreecomponent.FileTreeComponent
+	editComponent     app.EditorComponent
+	previewComponent  app.PreviewComponent
+	filetreeComponent app.FiletreeComponent
 	window            fyne.Window
 	config            *config.Config
 	currentDir        fyne.ListableURI
@@ -38,7 +39,7 @@ func NewEditor(w fyne.Window) *Editor {
 
 	e.editComponent = editorcomponent.NewEditComponent()
 	e.previewComponent = previewcomponent.NewPreviewComponent()
-	e.fileTreeComponent = filetreecomponent.NewFileTreeComponent(
+	e.filetreeComponent = filetreecomponent.NewFiletreeComponent(
 		e.loadFile,
 		e.deleteFile,
 		e.newFile,
@@ -86,25 +87,25 @@ func (e *Editor) initialize() {
 
 	e.config = cfg
 	e.currentDir = currentDir
-	e.fileTreeComponent.SetDirectory(e.currentDir)
+	e.filetreeComponent.SetDirectory(e.currentDir)
 
 	e.window.Canvas().SetContent(container.NewHSplit(
-		e.fileTreeComponent.View(),
+		e.filetreeComponent.View(),
 		e.editComponent.View(),
 	))
-	e.fileTreeComponent.Refresh()
+	e.filetreeComponent.Refresh()
 }
 
 func (e *Editor) toggleMode() {
 	e.editorMode = !e.editorMode
 	if e.editorMode {
 		e.window.Canvas().SetContent(container.NewHSplit(
-			e.fileTreeComponent.View(),
+			e.filetreeComponent.View(),
 			e.editComponent.View(),
 		))
 	} else {
 		e.window.Canvas().SetContent(container.NewHSplit(
-			e.fileTreeComponent.View(),
+			e.filetreeComponent.View(),
 			e.previewComponent.View(),
 		))
 	}
@@ -190,12 +191,12 @@ func (e *Editor) newFile() {
 	e.previewComponent.Update(header)
 	e.editorMode = false
 	e.toggleMode()
-	e.fileTreeComponent.Refresh()
+	e.filetreeComponent.Refresh()
 
-	files := e.fileTreeComponent.GetFiles()
+	files := e.filetreeComponent.GetFiles()
 	for i, file := range files {
 		if file.String() == newURI.String() {
-			e.fileTreeComponent.SelectFile(i)
+			e.filetreeComponent.SelectFile(i)
 			break
 		}
 	}
@@ -220,9 +221,9 @@ func (e *Editor) deleteFile(file fyne.URI, index int) {
 					e.previewComponent.Update("")
 				}
 
-				e.fileTreeComponent.Refresh()
+				e.filetreeComponent.Refresh()
 
-				files := e.fileTreeComponent.GetFiles()
+				files := e.filetreeComponent.GetFiles()
 				if len(files) > 0 {
 					newIndex := index
 					if newIndex >= len(files) {
@@ -231,7 +232,7 @@ func (e *Editor) deleteFile(file fyne.URI, index int) {
 					if newIndex < 0 {
 						newIndex = 0
 					}
-					e.fileTreeComponent.SelectFile(newIndex)
+					e.filetreeComponent.SelectFile(newIndex)
 					e.loadFile(files[newIndex])
 				} else {
 					e.currentFile = nil
@@ -320,13 +321,13 @@ func (e *Editor) saveFile() {
 		return
 	}
 
-	e.fileTreeComponent.Refresh()
+	e.filetreeComponent.Refresh()
 
 	if e.currentFile != nil {
-		files := e.fileTreeComponent.GetFiles()
+		files := e.filetreeComponent.GetFiles()
 		for i, file := range files {
 			if file.String() == e.currentFile.String() {
-				e.fileTreeComponent.SelectFile(i)
+				e.filetreeComponent.SelectFile(i)
 				break
 			}
 		}
