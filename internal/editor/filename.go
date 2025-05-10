@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -25,9 +26,16 @@ var (
 	invalidCharsRegex   = regexp.MustCompile(filenameInvalidCharsRegex)
 )
 
+var (
+	ErrFilenameGenerationDirNil      = errors.New("directory cannot be nil for filename generation")
+	ErrFilenameGenerationURI         = errors.New("failed to create URI for unique filename check")
+	ErrFilenameGenerationExistsCheck = errors.New("failed to check existence of potential filename")
+	ErrFilenameGenerationMaxAttempts = errors.New("failed to generate unique filename after multiple attempts")
+)
+
 func generateNewFilename(dir fyne.ListableURI) (string, error) {
 	if dir == nil {
-		return "", fmt.Errorf("directory cannot be nil")
+		return "", ErrFilenameGenerationDirNil
 	}
 
 	timestamp := time.Now().Format(filenameTimestampFormat)
@@ -38,23 +46,23 @@ func generateNewFilename(dir fyne.ListableURI) (string, error) {
 	for {
 		newURI, err := storage.Child(dir, uniqueName)
 		if err != nil {
-			return "", fmt.Errorf("failed to create URI for %s: %w", uniqueName, err)
+			return "", fmt.Errorf("%w: creating URI for '%s': %v", ErrFilenameGenerationURI, uniqueName, err)
 		}
 
 		_, err = storage.Reader(newURI)
 
 		if err != nil {
-			if err == storage.ErrNotExists {
+			if errors.Is(err, storage.ErrNotExists) {
 				return uniqueName, nil
 			}
-			return "", fmt.Errorf("failed to check existence of %s in directory %s: %w", uniqueName, dir.Path(), err)
+			return "", fmt.Errorf("%w: checking existence of '%s' in '%s': %v", ErrFilenameGenerationExistsCheck, uniqueName, dir.Path(), err)
 		}
 
 		uniqueName = fmt.Sprintf("%s%s-%d.md", filenameBasePrefix, timestamp, counter)
 		counter++
 
 		if counter > 1000 {
-			return "", fmt.Errorf("failed to generate unique filename after 1000 attempts in directory %s", dir.Path())
+			return "", fmt.Errorf("%w: in directory '%s'", ErrFilenameGenerationMaxAttempts, dir.Path())
 		}
 	}
 }

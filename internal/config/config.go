@@ -2,12 +2,25 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"markdown-editor/internal/app"
 	"os"
 	"path/filepath"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/dialog"
+)
+
+var (
+	ErrConfigHomeDir         = errors.New("could not get user home directory")
+	ErrConfigDirCreation     = errors.New("could not create config directory")
+	ErrConfigReadFailed      = errors.New("failed to read config file")
+	ErrConfigParseFailed     = errors.New("invalid config format")
+	ErrConfigMarshalFailed   = errors.New("could not marshal config to JSON")
+	ErrConfigWriteFailed     = errors.New("could not write config file")
+	ErrFolderSelectionFailed = errors.New("folder selection failed or was cancelled")
+	ErrNoFolderSelected      = errors.New("no folder selected by the user")
 )
 
 type Config struct {
@@ -17,12 +30,12 @@ type Config struct {
 func getConfigPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("could not get home directory: %w", err)
+		return "", fmt.Errorf("%w: %v", ErrConfigHomeDir, err)
 	}
 
 	configDir := filepath.Join(home, ".config", "markdown-editor")
 	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return "", fmt.Errorf("could not create config directory: %w", err)
+		return "", fmt.Errorf("%w: %v", ErrConfigDirCreation, err)
 	}
 
 	return filepath.Join(configDir, "config.json"), nil
@@ -31,10 +44,7 @@ func getConfigPath() (string, error) {
 func LoadConfig(window fyne.Window) (*Config, error) {
 	configPath, err := getConfigPath()
 	if err != nil {
-		fyne.CurrentApp().SendNotification(&fyne.Notification{
-			Title:   "Error",
-			Content: err.Error(),
-		})
+		app.ShowErrorNotification("Configuration Error", "Could not determine configuration path.", err)
 		return nil, err
 	}
 
@@ -44,20 +54,16 @@ func LoadConfig(window fyne.Window) (*Config, error) {
 
 	file, err := os.ReadFile(configPath)
 	if err != nil {
-		fyne.CurrentApp().SendNotification(&fyne.Notification{
-			Title:   "Error",
-			Content: "Failed to read config file: " + err.Error(),
-		})
-		return nil, err
+		wrappedErr := fmt.Errorf("%w: %v", ErrConfigReadFailed, err)
+		app.ShowErrorNotification("Configuration Error", "Failed to read the configuration file.", wrappedErr)
+		return nil, wrappedErr
 	}
 
 	var config Config
 	if err := json.Unmarshal(file, &config); err != nil {
-		fyne.CurrentApp().SendNotification(&fyne.Notification{
-			Title:   "Error",
-			Content: "Invalid config format: " + err.Error(),
-		})
-		return nil, fmt.Errorf("invalid config format: %w", err)
+		wrappedErr := fmt.Errorf("%w: %v", ErrConfigParseFailed, err)
+		app.ShowErrorNotification("Configuration Error", "Configuration file format is invalid.", wrappedErr)
+		return nil, wrappedErr
 	}
 
 	return &config, nil
@@ -66,10 +72,7 @@ func LoadConfig(window fyne.Window) (*Config, error) {
 func createDefaultConfig(window fyne.Window) (*Config, error) {
 	configPath, err := getConfigPath()
 	if err != nil {
-		fyne.CurrentApp().SendNotification(&fyne.Notification{
-			Title:   "Error",
-			Content: err.Error(),
-		})
+		app.ShowErrorNotification("Configuration Error", "Could not determine configuration path during setup.", err)
 		return nil, err
 	}
 
@@ -87,18 +90,13 @@ func createDefaultConfig(window fyne.Window) (*Config, error) {
 
 	selection := <-result
 	if selection.err != nil {
-		fyne.CurrentApp().SendNotification(&fyne.Notification{
-			Title:   "Error",
-			Content: "Folder selection failed: " + selection.err.Error(),
-		})
-		return nil, fmt.Errorf("folder selection failed: %w", selection.err)
+		wrappedErr := fmt.Errorf("%w: %v", ErrFolderSelectionFailed, selection.err)
+		app.ShowErrorNotification("Configuration Setup", "Folder selection process failed.", wrappedErr)
+		return nil, wrappedErr
 	}
 	if selection.uri == nil {
-		fyne.CurrentApp().SendNotification(&fyne.Notification{
-			Title:   "Error",
-			Content: "No folder selected",
-		})
-		return nil, fmt.Errorf("no folder selected")
+		app.ShowErrorNotification("Configuration Setup", ErrNoFolderSelected.Error(), ErrNoFolderSelected)
+		return nil, ErrNoFolderSelected
 	}
 
 	config := Config{
@@ -107,20 +105,16 @@ func createDefaultConfig(window fyne.Window) (*Config, error) {
 
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
-		fyne.CurrentApp().SendNotification(&fyne.Notification{
-			Title:   "Error",
-			Content: "Failed to marshal config: " + err.Error(),
-		})
-		return nil, fmt.Errorf("could not marshal config: %w", err)
+		wrappedErr := fmt.Errorf("%w: %v", ErrConfigMarshalFailed, err)
+		app.ShowErrorNotification("Configuration Error", "Failed to prepare configuration for saving.", wrappedErr)
+		return nil, wrappedErr
 	}
 
 	if err := os.WriteFile(configPath, data, 0600); err != nil {
-		fyne.CurrentApp().SendNotification(&fyne.Notification{
-			Title:   "Error",
-			Content: "Failed to write config file: " + err.Error(),
-		})
-		return nil, fmt.Errorf("could not write config file: %w", err)
+		wrappedErr := fmt.Errorf("%w: %v", ErrConfigWriteFailed, err)
+		app.ShowErrorNotification("Configuration Error", "Failed to save the configuration file.", wrappedErr)
+		return nil, wrappedErr
 	}
-
+	app.ShowSuccessNotification("Configuration Saved", fmt.Sprintf("Workspace configured to: %s", config.DefaultFolder))
 	return &config, nil
 }

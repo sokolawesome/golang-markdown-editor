@@ -1,7 +1,9 @@
 package filetreecomponent
 
 import (
+	"fmt"
 	"log"
+	"markdown-editor/internal/app"
 	"strings"
 
 	"fyne.io/fyne/v2"
@@ -46,17 +48,17 @@ func NewFiletreeComponent(onSelect func(fyne.URI), onDelete func(fyne.URI, int),
 		func(id widget.ListItemID, item fyne.CanvasObject) {
 			container, ok := item.(*fyne.Container)
 			if !ok {
-				log.Printf("Failed to cast item to container for file %s", ftc.files[id].Name())
+				log.Printf("Error: Failed to cast item to container for file ID %d", id)
 				return
 			}
 			label, ok := container.Objects[0].(*widget.Label)
 			if !ok {
-				log.Printf("Failed to cast object to label for file %s", ftc.files[id].Name())
+				log.Printf("Error: Failed to cast object to label for file ID %d", id)
 				return
 			}
 			btn, ok := container.Objects[1].(*widget.Button)
 			if !ok {
-				log.Printf("Failed to cast object to button for file %s", ftc.files[id].Name())
+				log.Printf("Error: Failed to cast object to button for file ID %d", id)
 				return
 			}
 
@@ -73,7 +75,7 @@ func NewFiletreeComponent(onSelect func(fyne.URI), onDelete func(fyne.URI, int),
 	)
 
 	ftc.fileList.OnSelected = func(id widget.ListItemID) {
-		if ftc.OnSelectFile != nil {
+		if ftc.OnSelectFile != nil && id < len(ftc.files) && id >= 0 {
 			ftc.OnSelectFile(ftc.files[id])
 		}
 	}
@@ -104,20 +106,15 @@ func (ftc *FiletreeComponent) SetDirectory(dir fyne.ListableURI) {
 
 func (ftc *FiletreeComponent) Refresh() {
 	if ftc.currentDir == nil {
-		fyne.CurrentApp().SendNotification(&fyne.Notification{
-			Title:   "Error",
-			Content: "No workspace directory selected",
-		})
+		app.ShowErrorNotification("File Tree Error", "Workspace directory not set.", nil)
 		return
 	}
 
 	ftc.files = []fyne.URI{}
 	items, err := ftc.currentDir.List()
 	if err != nil {
-		fyne.CurrentApp().SendNotification(&fyne.Notification{
-			Title:   "Error",
-			Content: "Failed to list directory: " + err.Error(),
-		})
+		userMsg := fmt.Sprintf("Could not list files in directory '%s'.", ftc.currentDir.Path())
+		app.ShowErrorNotification("File Tree Error", userMsg, err)
 		return
 	}
 
@@ -141,5 +138,9 @@ func (ftc *FiletreeComponent) GetFiles() []fyne.URI {
 }
 
 func (ftc *FiletreeComponent) SelectFile(id widget.ListItemID) {
-	ftc.fileList.Select(id)
+	if id < len(ftc.files) && id >= 0 {
+		ftc.fileList.Select(id)
+	} else {
+		log.Printf("Warning: Attempted to select invalid file ID %d (total files: %d)", id, len(ftc.files))
+	}
 }
