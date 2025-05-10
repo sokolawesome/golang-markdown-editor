@@ -6,11 +6,11 @@ import (
 	"log"
 	"markdown-editor/internal/app"
 	"markdown-editor/internal/config"
+	"markdown-editor/internal/fileservice"
 	"markdown-editor/internal/ui/editorcomponent"
 	"markdown-editor/internal/ui/filetreecomponent"
 	"markdown-editor/internal/ui/previewcomponent"
 
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -26,19 +26,17 @@ import (
 var (
 	ErrEditorLoadConfig         = errors.New("failed to load configuration")
 	ErrEditorInvalidConfigDir   = errors.New("invalid configured folder")
-	ErrEditorFileLoad           = errors.New("failed to load file content")
 	ErrEditorNoWorkspace        = errors.New("no workspace directory selected")
-	ErrEditorGenerateFilename   = errors.New("failed to generate new filename")
 	ErrEditorCreateFileURI      = errors.New("failed to create file URI")
-	ErrEditorOpenFileWrite      = errors.New("failed to open file for writing")
-	ErrEditorCloseFileWrite     = errors.New("failed to close file writer")
-	ErrEditorWriteContent       = errors.New("failed to write content to file")
-	ErrEditorFileDelete         = errors.New("failed to delete file")
 	ErrEditorNoFileToSave       = errors.New("no file selected to save")
-	ErrEditorRenameFile         = errors.New("failed to rename file")
 	ErrEditorCheckFileExistence = errors.New("could not check for existing file during save")
 	ErrEditorListDirectory      = errors.New("failed to list directory contents")
+	ErrEditorFilenameInvalid    = errors.New("generated filename is invalid or empty")
 )
+
+const newFileBasePrefix = "note-"
+const newFileExtension = ".md"
+const editorFilenameDefault = "untitled"
 
 type Editor struct {
 	currentFile       fyne.URI
@@ -49,6 +47,7 @@ type Editor struct {
 	config            *config.Config
 	currentDir        fyne.ListableURI
 	editorMode        bool
+	fs                *fileservice.Service
 }
 
 func NewEditor(w fyne.Window) *Editor {
@@ -147,11 +146,10 @@ func loadConfigWithRetry(w fyne.Window, maxAttempts int) (*config.Config, error)
 }
 
 func (e *Editor) loadFile(uri fyne.URI) {
-	content, err := os.ReadFile(uri.Path())
+	content, err := e.fs.ReadFile(uri)
 	if err != nil {
 		userMsg := fmt.Sprintf("Could not read content from '%s'.", uri.Name())
-		wrappedErr := fmt.Errorf("%w: reading '%s': %v", ErrEditorFileLoad, uri.Path(), err)
-		app.ShowErrorNotification("Error Loading File", userMsg, wrappedErr)
+		app.ShowErrorNotification("Error Loading File", userMsg, fmt.Errorf("loading file for editor: %w", err))
 		return
 	}
 
@@ -167,12 +165,12 @@ func (e *Editor) newFile() {
 		return
 	}
 
-	baseName, err := generateNewFilename(e.currentDir)
+	baseName, err := e.fs.GenerateUniqueFilename(e.currentDir, newFileBasePrefix, newFileExtension)
 	if err != nil {
-		wrappedErr := fmt.Errorf("%w: %v", ErrEditorGenerateFilename, err)
-		app.ShowErrorNotification("Error Creating File", "Could not generate a unique name for the new file.", wrappedErr)
+		app.ShowErrorNotification("Error Creating File", "Could not generate a unique name for the new file.", fmt.Errorf("generating filename for new file: %w", err))
 		return
 	}
+
 	newURI, err := storage.Child(e.currentDir, baseName)
 	if err != nil {
 		wrappedErr := fmt.Errorf("%w: for '%s' in '%s': %v", ErrEditorCreateFileURI, baseName, e.currentDir.Path(), err)
@@ -180,23 +178,12 @@ func (e *Editor) newFile() {
 		return
 	}
 
-	header := "# " + strings.TrimSuffix(baseName, ".md") + "\n"
-	writer, err := storage.Writer(newURI)
-	if err != nil {
-		wrappedErr := fmt.Errorf("%w: for '%s': %v", ErrEditorOpenFileWrite, newURI.Path(), err)
-		app.ShowErrorNotification("Error Creating File", "Could not open the new file for writing.", wrappedErr)
-		return
-	}
-	defer func() {
-		if closeErr := writer.Close(); closeErr != nil {
-			wrappedErr := fmt.Errorf("%w: for '%s': %v", ErrEditorCloseFileWrite, newURI.Path(), closeErr)
-			app.ShowErrorNotification("Error Creating File", "Problem closing the new file after writing.", wrappedErr)
-		}
-	}()
+	fileTitle := strings.TrimSuffix(baseName, newFileExtension)
+	fileTitle = strings.TrimPrefix(fileTitle, newFileBasePrefix)
+	header := "# " + fileTitle + "\n"
 
-	if _, err := writer.Write([]byte(header)); err != nil {
-		wrappedErr := fmt.Errorf("%w: to '%s': %v", ErrEditorWriteContent, newURI.Path(), err)
-		app.ShowErrorNotification("Error Creating File", "Failed to write initial content to the new file.", wrappedErr)
+	if err := e.fs.WriteFile(newURI, []byte(header)); err != nil {
+		app.ShowErrorNotification("Error Creating File", "Failed to write initial content to the new file.", fmt.Errorf("writing new file content: %w", err))
 		return
 	}
 
@@ -217,27 +204,25 @@ func (e *Editor) newFile() {
 	app.ShowSuccessNotification("File Created", fmt.Sprintf("New file '%s' created.", newURI.Name()))
 }
 
-func (e *Editor) deleteFile(file fyne.URI, index int) {
-	dialog.ShowConfirm("Delete File", fmt.Sprintf("Are you sure you want to delete '%s'?", file.Name()),
+func (e *Editor) deleteFile(fileToDelete fyne.URI, index int) {
+	dialog.ShowConfirm("Delete File", fmt.Sprintf("Are you sure you want to delete '%s'?", fileToDelete.Name()),
 		func(ok bool) {
 			if ok {
-				if err := os.Remove(file.Path()); err != nil {
-					userMsg := fmt.Sprintf("Could not delete file '%s'.", file.Name())
-					wrappedErr := fmt.Errorf("%w: '%s': %v", ErrEditorFileDelete, file.Path(), err)
-					app.ShowErrorNotification("Error Deleting File", userMsg, wrappedErr)
+				if err := e.fs.DeleteFile(fileToDelete); err != nil {
+					userMsg := fmt.Sprintf("Could not delete file '%s'.", fileToDelete.Name())
+					app.ShowErrorNotification("Error Deleting File", userMsg, fmt.Errorf("deleting file for editor: %w", err))
 					return
 				}
 
-				app.ShowInfoNotification("File Deleted", fmt.Sprintf("File '%s' deleted.", file.Name()))
+				app.ShowInfoNotification("File Deleted", fmt.Sprintf("File '%s' deleted.", fileToDelete.Name()))
 
-				if e.currentFile != nil && e.currentFile.String() == file.String() {
+				if e.currentFile != nil && e.currentFile.String() == fileToDelete.String() {
 					e.currentFile = nil
 					e.editComponent.SetContent("")
 					e.previewComponent.Update("")
 				}
 
 				e.filetreeComponent.Refresh()
-
 				files := e.filetreeComponent.GetFiles()
 				if len(files) > 0 {
 					newIndex := index
@@ -266,77 +251,64 @@ func (e *Editor) saveFile() {
 
 	content := e.editComponent.Content()
 	originalFilename := filepath.Base(e.currentFile.Path())
-	var potentialFilename string
+
+	var potentialFilenameTitle string
 	for line := range strings.SplitSeq(content, "\n") {
 		trimmedLine := strings.TrimSpace(line)
 		if trimmedLine != "" {
-			potentialFilename = trimmedLine
+			potentialFilenameTitle = trimmedLine
 			break
 		}
 	}
 
-	var newFilename string
-	if potentialFilename != "" {
-		sanitizedTitle := sanitizeFilename(potentialFilename)
-		if sanitizedTitle != "" && sanitizedTitle != filenameDefault {
-			newFilename = sanitizedTitle + ".md"
+	var newFilenameComponent string
+	if potentialFilenameTitle != "" {
+		sanitizedTitle := e.fs.SanitizeFilenameComponent(potentialFilenameTitle)
+		if sanitizedTitle != "" {
+			newFilenameComponent = sanitizedTitle
 		}
 	}
+	if newFilenameComponent == "" {
+		newFilenameComponent = editorFilenameDefault
+	}
+	desiredNewFilename := newFilenameComponent + ".md"
 
-	if newFilename != "" && newFilename != originalFilename {
-		newURI, err := storage.Child(e.currentDir, newFilename)
+	if desiredNewFilename != originalFilename {
+		newURI, err := storage.Child(e.currentDir, desiredNewFilename)
 		if err != nil {
-			userMsg := fmt.Sprintf("Could not determine path for new filename '%s'.", newFilename)
-			wrappedErr := fmt.Errorf("%w: creating child URI for '%s': %v", ErrEditorCreateFileURI, newFilename, err)
+			userMsg := fmt.Sprintf("Could not determine path for new filename '%s'.", desiredNewFilename)
+			wrappedErr := fmt.Errorf("%w: creating child URI for '%s': %v", ErrEditorCreateFileURI, desiredNewFilename, err)
 			app.ShowErrorNotification("Error Saving File", userMsg, wrappedErr)
 			return
 		}
 
-		_, statErr := storage.Reader(newURI)
-		if statErr == nil {
-			app.ShowInfoNotification("File Exists", fmt.Sprintf("A file named '%s' already exists. Overwriting content in existing file after rename.", newFilename))
-		} else if !errors.Is(statErr, storage.ErrNotExists) {
-			userMsg := fmt.Sprintf("Could not check if a file named '%s' already exists.", newFilename)
-			wrappedErr := fmt.Errorf("%w: checking existence of '%s': %v", ErrEditorCheckFileExistence, newURI.Path(), statErr)
-			app.ShowErrorNotification("Error Saving File", userMsg, wrappedErr)
+		exists, err := e.fs.FileExists(newURI)
+		if err != nil {
+			userMsg := fmt.Sprintf("Could not check if a file named '%s' already exists.", desiredNewFilename)
+			app.ShowErrorNotification("Error Saving File", userMsg, fmt.Errorf("checking file existence during save: %w", err))
 			return
 		}
+		if exists {
+			app.ShowInfoNotification("File Exists", fmt.Sprintf("A file named '%s' already exists. Overwriting content after rename.", desiredNewFilename))
+		}
 
-		if err := storage.Move(e.currentFile, newURI); err != nil {
-			userMsg := fmt.Sprintf("Failed to rename file from '%s' to '%s'.", originalFilename, newFilename)
-			wrappedErr := fmt.Errorf("%w: from '%s' to '%s': %v", ErrEditorRenameFile, e.currentFile.Path(), newURI.Path(), err)
-			app.ShowErrorNotification("Error Saving File", userMsg, wrappedErr)
+		if err := e.fs.RenameFile(e.currentFile, newURI); err != nil {
+			userMsg := fmt.Sprintf("Failed to rename file from '%s' to '%s'.", originalFilename, desiredNewFilename)
+			app.ShowErrorNotification("Error Saving File", userMsg, fmt.Errorf("renaming file for save: %w", err))
 			return
 		}
 		e.currentFile = newURI
 		log.Printf("File renamed to: %s", newURI.Path())
-		app.ShowInfoNotification("File Renamed", fmt.Sprintf("File renamed to '%s'.", newFilename))
+		app.ShowInfoNotification("File Renamed", fmt.Sprintf("File renamed to '%s'.", desiredNewFilename))
 	}
 
-	writer, err := storage.Writer(e.currentFile)
-	if err != nil {
-		userMsg := fmt.Sprintf("Could not open '%s' for saving.", e.currentFile.Name())
-		wrappedErr := fmt.Errorf("%w: for '%s': %v", ErrEditorOpenFileWrite, e.currentFile.Path(), err)
-		app.ShowErrorNotification("Error Saving File", userMsg, wrappedErr)
-		return
-	}
-	defer func() {
-		if closeErr := writer.Close(); closeErr != nil {
-			userMsg := fmt.Sprintf("Problem closing '%s' after saving.", e.currentFile.Name())
-			wrappedErr := fmt.Errorf("%w: for '%s': %v", ErrEditorCloseFileWrite, e.currentFile.Path(), closeErr)
-			app.ShowErrorNotification("Error Saving File", userMsg, wrappedErr)
-		}
-	}()
-
-	if _, err := writer.Write([]byte(content)); err != nil {
+	if err := e.fs.WriteFile(e.currentFile, []byte(content)); err != nil {
 		userMsg := fmt.Sprintf("Failed to write content to '%s'.", e.currentFile.Name())
-		wrappedErr := fmt.Errorf("%w: to '%s': %v", ErrEditorWriteContent, e.currentFile.Path(), err)
-		app.ShowErrorNotification("Error Saving File", userMsg, wrappedErr)
+		app.ShowErrorNotification("Error Saving File", userMsg, fmt.Errorf("writing file content for save: %w", err))
 		return
 	}
 
 	e.filetreeComponent.Refresh()
-
 	if e.currentFile != nil {
 		files := e.filetreeComponent.GetFiles()
 		for i, file := range files {

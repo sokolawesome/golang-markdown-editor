@@ -19,7 +19,7 @@ var (
 	ErrConfigParseFailed     = errors.New("invalid config format")
 	ErrConfigMarshalFailed   = errors.New("could not marshal config to JSON")
 	ErrConfigWriteFailed     = errors.New("could not write config file")
-	ErrFolderSelectionFailed = errors.New("folder selection failed or was cancelled")
+	ErrFolderSelectionFailed = errors.New("folder selection failed or was canceled")
 	ErrNoFolderSelected      = errors.New("no folder selected by the user")
 )
 
